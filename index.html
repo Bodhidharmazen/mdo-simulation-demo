@@ -299,15 +299,15 @@
             if (energyChange >= 40) constructedObject = 'Berry';
             else if (energyChange >= 15) constructedObject = 'Bush';
             else if (energyChange >= 5) constructedObject = 'Grass';
+            else if (energyChange < 0) constructedObject = 'Tree';
             agent.phenomenalWorld.set(fieldKey, {
               constructedObject,
-              construction: energyChange >= 5 ? 'energy-source' : 'moveable-space',
-              reliability: 100,
+              construction: 'moveable-space',
+              reliability: energyChange,
               lastSeen: timeStep,
-              consumed: true,
-              energyGained: energyChange
+              consumed: false
             });
-          } else if (!agent.phenomenalWorld.has(fieldKey) || agent.phenomenalWorld.get(fieldKey).constructedObject !== 'Berry') {
+          } else {
             agent.phenomenalWorld.set(fieldKey, {
               constructedObject: 'Field',
               construction: 'moveable-space',
@@ -316,16 +316,6 @@
               consumed: false
             });
           }
-        } else {
-          if (attemptedX >= 0 && attemptedX < WORLD_SIZE && attemptedY >= 0 && attemptedY < WORLD_SIZE) {
-            const obstacleKey = `${attemptedX},${attemptedY}`;
-            const existing = agent.phenomenalWorld.get(obstacleKey);
-            if (!existing || (!existing.constructedObject || existing.constructedObject === 'Field')) {
-              const targetCell = sensoriumAfter.substrate[attemptedY][attemptedX];
-              const isStone = targetCell && targetCell.hiddenProperties.resistance === 1.0;
-              agent.phenomenalWorld.set(obstacleKey, {
-                constructedObject: isStone ? 'Stone' : 'Tree',
-                construction: 'obstacle',
                 reliability: 100,
                 lastSeen: timeStep,
                 consumed: false
@@ -776,9 +766,9 @@
           totalPredicted++;
         }
       });
-      // For Bush and Grass, count as predicted if reliability is positive but not confirmed
+      // For Bush and Grass, count as predicted if prediction is 'valuable' and not constructed
       state.agent.phenomenalWorld.forEach(entry => {
-        if (!entry.constructedObject && entry.reliability > 0 && entry.prediction === 'valuable') {
+        if (!entry.constructedObject && entry.prediction === 'valuable') {
           predictedCounts['Bush']++;
           predictedCounts['Grass']++;
         }
@@ -793,7 +783,7 @@
       // Total predictions
       let predCount = 0;
       state.agent.phenomenalWorld.forEach(entry => {
-        if (entry.prediction) predCount++;
+        if (entry.prediction && !entry.constructedObject) predCount++;
       });
       document.getElementById('predictionStats').innerHTML = `Total predictions made: ${predCount}`;
       // Unique locations explored
