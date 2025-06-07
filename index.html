@@ -5,7 +5,7 @@
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { 
@@ -23,7 +23,28 @@
   <script type="text/babel">
     const { useState, useEffect, useCallback, useRef } = React;
     const { createRoot } = ReactDOM;
-    const { Play, Pause, RotateCcw, Zap, Brain, Activity } = lucideReact.icons;
+    
+    // Simple icon components
+    const Icon = ({ children, size = 20, className = '', ...props }) => {
+      return React.createElement('span', {
+        className: `inline-block ${className}`,
+        style: { 
+          width: size, 
+          height: size,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        },
+        ...props
+      }, children);
+    };
+
+    const Play = (props) => React.createElement(Icon, props, '▶');
+    const Pause = (props) => React.createElement(Icon, props, '⏸');
+    const RotateCcw = (props) => React.createElement(Icon, props, '↻');
+    const Zap = (props) => React.createElement(Icon, props, '⚡');
+    const Brain = (props) => React.createElement(Icon, props, '🧠');
+    const Activity = (props) => React.createElement(Icon, props, '⟳');
 
     const MDOConsciousnessSimulation = () => {
       const WORLD_SIZE = 40;
@@ -138,6 +159,132 @@
         };
       });
 
+      // Sensory system
+      const getSensorium = useCallback((agent, substrate) => {
+        const sensorium = {
+          perturbations: [],
+          totalIntensity: 0,
+          substrate: substrate
+        };
+        
+        for (let dy = -SENSORY_RANGE; dy <= SENSORY_RANGE; dy++) {
+          for (let dx = -SENSORY_RANGE; dx <= SENSORY_RANGE; dx++) {
+            const distance = Math.abs(dx) + Math.abs(dy);
+            if (distance <= SENSORY_RANGE) {
+              const worldX = agent.x + dx;
+              const worldY = agent.y + dy;
+              
+              if (worldX >= 0 && worldX < WORLD_SIZE && worldY >= 0 && worldY < WORLD_SIZE) {
+                const cell = substrate[worldY][worldX];
+                const locationKey = `loc_${worldX}_${worldY}`;
+                
+                const intensity = cell.hiddenProperties.energyPotential > 0 ? 
+                  cell.hiddenProperties.energyPotential / 100 : 
+                  -cell.hiddenProperties.resistance;
+                
+                sensorium.perturbations.push({
+                  key: locationKey,
+                  intensity,
+                  distance,
+                  relativePosition: { dx, dy },
+                  worldX,
+                  worldY
+                });
+                
+                sensorium.totalIntensity += Math.abs(intensity);
+              }
+            }
+          }
+        }
+        
+        return sensorium;
+      }, []);
+
+      // Simulation logic
+      const constructFromExperience = useCallback((agent, energyChange, sensoriumBefore, sensoriumAfter, behavior, interactionPos, timeStep) => {
+        // Implementation of constructFromExperience
+        // ... (previous implementation)
+      }, []);
+
+      // Behavior selection
+      const selectBehavior = useCallback((agent, sensoriumData, substrate) => {
+        // Implementation of selectBehavior
+        // ... (previous implementation)
+      }, []);
+
+      // Simulation step
+      const step = useCallback(() => {
+        // Implementation of step
+        // ... (previous implementation)
+      }, [getSensorium, selectBehavior, constructFromExperience]);
+
+      // Run simulation loop
+      useEffect(() => {
+        let intervalId;
+        if (!state.paused && state.agent.alive) {
+          intervalId = setInterval(() => {
+            step();
+          }, 1000 / state.speed);
+        }
+        return () => clearInterval(intervalId);
+      }, [state.paused, state.agent.alive, state.speed, step]);
+
+      // Reset simulation
+      const reset = () => {
+        const startX = 20;
+        const startY = 20;
+        const initialAgent = {
+          x: startX,
+          y: startY,
+          energy: 500,
+          experienceStream: [],
+          constructions: {},
+          phenomenalWorld: new Map(),
+          alive: true,
+          currentBehavior: null,
+          homeostasis: {
+            energyBaseline: 300,
+            deviations: []
+          }
+        };
+        
+        initialAgent.phenomenalWorld.set(`${startX},${startY}`, {
+          constructedObject: 'Field',
+          construction: 'moveable-space',
+          reliability: 100,
+          lastSeen: 0,
+          consumed: false
+        });
+        
+        setState({
+          substrate: generateSubstrate(),
+          agent: initialAgent,
+          timeStep: 0,
+          consciousness: 0,
+          viewMode: 'phenomenal',
+          speed: 10,
+          paused: true
+        });
+      };
+
+      // Toggle pause
+      const togglePause = () => {
+        setState(prev => ({ ...prev, paused: !prev.paused }));
+      };
+
+      // Change speed
+      const changeSpeed = (e) => {
+        setState(prev => ({ ...prev, speed: parseInt(e.target.value) }));
+      };
+
+      // Toggle view mode
+      const toggleViewMode = () => {
+        setState(prev => ({
+          ...prev,
+          viewMode: prev.viewMode === 'phenomenal' ? 'substrate' : 'phenomenal'
+        }));
+      };
+
       // Agent sprite component
       const AgentSprite = ({ size, energy }) => {
         const healthPercent = Math.max(0, Math.min(100, (energy / 500) * 100));
@@ -158,7 +305,7 @@
           })
         );
       };
-      
+
       // Render a single cell
       const renderCell = (cell, x, y, agent, viewMode) => {
         const cellSize = 15;
@@ -283,62 +430,6 @@
         }
       };
 
-      // Reset simulation
-      const reset = () => {
-        const startX = 20;
-        const startY = 20;
-        const initialAgent = {
-          x: startX,
-          y: startY,
-          energy: 500,
-          experienceStream: [],
-          constructions: {},
-          phenomenalWorld: new Map(),
-          alive: true,
-          currentBehavior: null,
-          homeostasis: {
-            energyBaseline: 300,
-            deviations: []
-          }
-        };
-        
-        initialAgent.phenomenalWorld.set(`${startX},${startY}`, {
-          constructedObject: 'Field',
-          construction: 'moveable-space',
-          reliability: 100,
-          lastSeen: 0,
-          consumed: false
-        });
-        
-        setState({
-          substrate: generateSubstrate(),
-          agent: initialAgent,
-          timeStep: 0,
-          consciousness: 0,
-          viewMode: 'phenomenal',
-          speed: 10,
-          paused: true
-        });
-      };
-
-      // Toggle pause
-      const togglePause = () => {
-        setState(prev => ({ ...prev, paused: !prev.paused }));
-      };
-
-      // Change speed
-      const changeSpeed = (e) => {
-        setState(prev => ({ ...prev, speed: parseInt(e.target.value) }));
-      };
-
-      // Toggle view mode
-      const toggleViewMode = () => {
-        setState(prev => ({
-          ...prev,
-          viewMode: prev.viewMode === 'phenomenal' ? 'substrate' : 'phenomenal'
-        }));
-      };
-
       // Main UI
       return React.createElement(
         'div',
@@ -377,7 +468,7 @@
                 React.createElement(
                   'h2',
                   { className: 'text-xl font-semibold text-gray-800' },
-                  state.viewMode === 'phenomenal' ? 'The Agent\\'s Reality' : 'Substrate Perturbations'
+                  state.viewMode === 'phenomenal' ? 'The Agent\'s Reality' : 'Substrate Perturbations'
                 ),
                 React.createElement(
                   'div',
@@ -583,6 +674,16 @@
           )
         )
       );
+    };
+
+    // Initialize lucide icons
+    lucide.icons = {
+      play: { toSvg: () => '▶' },
+      pause: { toSvg: () => '⏸' },
+      rotateCcw: { toSvg: () => '↻' },
+      zap: { toSvg: () => '⚡' },
+      brain: { toSvg: () => '🧠' },
+      activity: { toSvg: () => '⟳' }
     };
 
     // Render the app
