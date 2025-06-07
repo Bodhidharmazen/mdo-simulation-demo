@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MDO Simulation</title>
+  <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6.26.0/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.js"></script>
+  <style>
+    body { margin: 20px; font-family: Arial, sans-serif; }
+    .grid { display: grid; gap: 1px; }
+    .cell { width: 15px; height: 15px; border: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    // Your React component code here
+    const { useState, useEffect, useCallback, useRef } = React;
+    const { Play, Pause, RotateCcw, Zap, Brain, Activity } = lucideReact;
+    
+    // import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Play, Pause, RotateCcw, Zap, Brain, Activity } from 'lucide-react';
+
+const MDOConsciousnessSimulation = () => {
+  const WORLD_SIZE = 40;
+  const SENSORY_RANGE = 2;
+  const MAX_ENERGY = 1000;
+  
+  // Generate substrate - just perturbations, no objects
+  const generateSubstrate = () => {
+    const substrate = [];
+    for (let y = 0; y < WORLD_SIZE; y++) {
+      const row = [];
+      for (let x = 0; x < WORLD_SIZE; x++) {
+        const cell = {
+          hiddenProperties: {
+            energyPotential: 0,
+            resistance: 0,
+            growthCycle: 0,
+            lastInteraction: -1000,
+            originalEnergy: 0,
+            gradientIntensity: 0
+          }
+        };
+        
+        // Create mathematical perturbations - these mean NOTHING until constructed
+        const perturbation1 = Math.sin(x * 0.3) * Math.cos(y * 0.3);
+        const perturbation2 = Math.sin((x + 10) * 0.2) * Math.cos((y + 10) * 0.2);
+        const perturbation3 = Math.sin((x - 5) * 0.4) * Math.cos((y + 15) * 0.4);
+        
+        const combinedPerturbation = (perturbation1 + perturbation2 * 0.5 + perturbation3 * 0.3 + 1) / 2; // Normalize to 0-1
+        const gradientIntensity = combinedPerturbation * 100; // Convert to 0-100 scale
+        cell.hiddenProperties.gradientIntensity = gradientIntensity;
+        
+        // Clear a safe starting area around position (20,20)
+        const distFromStart = Math.abs(x - 20) + Math.abs(y - 20);
+        if (distFromStart < 3) {
+          // Starting area - mix of grass and small berries
+          if (Math.random() < 0.2) {
+            cell.hiddenProperties.gradientIntensity = 45 + Math.random() * 10; // Berry range
+            cell.hiddenProperties.energyPotential = 30 + Math.floor(Math.random() * 30);
+            cell.hiddenProperties.originalEnergy = cell.hiddenProperties.energyPotential;
+            cell.hiddenProperties.growthCycle = 800 + Math.floor(Math.random() * 400); // Much longer regrowth
+          } else {
+            cell.hiddenProperties.gradientIntensity = 10 + Math.random() * 10; // Grass range
+            cell.hiddenProperties.energyPotential = 5 + Math.floor(Math.random() * 5);
+            cell.hiddenProperties.originalEnergy = cell.hiddenProperties.energyPotential;
+          }
+        } else {
+          // Rest of the world - distributed by gradient intensity
+          if (gradientIntensity >= 0 && gradientIntensity < 20) {
+            // Grass (0-20%)
+            cell.hiddenProperties.energyPotential = 5 + Math.floor(Math.random() * 10);
+            cell.hiddenProperties.originalEnergy = cell.hiddenProperties.energyPotential;
+            cell.hiddenProperties.growthCycle = 100 + Math.floor(Math.random() * 100);
+          } else if (gradientIntensity >= 20 && gradientIntensity < 40) {
+            // Bushes (20-40%)
+            cell.hiddenProperties.energyPotential = 15 + Math.floor(Math.random() * 15);
+            cell.hiddenProperties.originalEnergy = cell.hiddenProperties.energyPotential;
+            cell.hiddenProperties.growthCycle = 300 + Math.floor(Math.random() * 200);
+          } else if (gradientIntensity >= 40 && gradientIntensity < 60) {
+            // Berries (40-60%) - SCARCER
+            if (Math.random() < 0.15) { // Only 15% chance for berries
+              cell.hiddenProperties.energyPotential = 40 + Math.floor(Math.random() * 60);
+              cell.hiddenProperties.originalEnergy = cell.hiddenProperties.energyPotential;
+              cell.hiddenProperties.growthCycle = 800 + Math.floor(Math.random() * 400); // 800-1200 steps to regrow
+            }
+          } else if (gradientIntensity >= 60 && gradientIntensity < 80) {
+            // Trees (60-80%)
+            cell.hiddenProperties.resistance = 0.9 + Math.random() * 0.1;
+            cell.hiddenProperties.energyPotential = 0;
+          } else {
+            // Stones (80-100%)
+            cell.hiddenProperties.resistance = 1.0;
+            cell.hiddenProperties.energyPotential = 0;
+          }
+        }
+        
+        row.push(cell);
+      }
+      substrate.push(row);
+    }
+    return substrate;
+  };
+  
+  // Initial state - ensure agent starts in a clear area
+  const [state, setState] = useState(() => {
+    const startX = 20;
+    const startY = 20;
+    const initialAgent = {
+      x: startX,
+      y: startY,
+      energy: 500,
+      experienceStream: [],
+      constructions: {},
+      phenomenalWorld: new Map(),
+      alive: true,
+      currentBehavior: null,
+      homeostasis: {
+        energyBaseline: 300,
+        deviations: []
+      }
+    };
+    
+    // Agent starts by constructing its initial position as Field
+    initialAgent.phenomenalWorld.set(`${startX},${startY}`, {
+      constructedObject: 'Field',
+      construction: 'moveable-space',
+      reliability: 100,
+      lastSeen: 0,
+      consumed: false
+    });
+    
+    return {
+      substrate: null,
+      agent: initialAgent,
+      timeStep: 0,
+      consciousness: 0,
+      viewMode: 'phenomenal',
+      speed: 10,
+      paused: true
+    };
+  });
+  
+  // Initialize substrate
+  useEffect(() => {
+    if (!state.substrate) {
+      setState(s => ({ ...s, substrate: generateSubstrate() }));
+    }
+  }, [state.substrate]);
+  
+  // Sensory system - only detects gradients, not objects
+  const getSensorium = useCallback((agent, substrate) => {
+    const sensorium = {
+      perturbations: [],
+      totalIntensity: 0,
+      substrate // Pass substrate for construction determination
+    };
+    
+    for (let dy = -SENSORY_RANGE; dy <= SENSORY_RANGE; dy++) {
+      for (let dx = -SENSORY_RANGE; dx <= SENSORY_RANGE; dx++) {
+        const distance = Math.abs(dx) + Math.abs(dy);
+        if (distance <= SENSORY_RANGE) {
+          const worldX = agent.x + dx;
+          const worldY = agent.y + dy;
+          
+          if (worldX >= 0 && worldX < WORLD_SIZE && worldY >= 0 && worldY < WORLD_SIZE) {
+            const cell = substrate[worldY][worldX];
+            
+            // Create a unique key based on location, not gradient properties
+            const locationKey = `loc_${worldX}_${worldY}`;
+            
+            const intensity = cell.hiddenProperties.energyPotential > 0 ? 
+              cell.hiddenProperties.energyPotential / 100 : 
+              -cell.hiddenProperties.resistance;
+            
+            sensorium.perturbations.push({
+              key: locationKey,
+              intensity,
+              distance,
+              relativePosition: { dx, dy },
+              worldX,
+              worldY
+            });
+            
+            sensorium.totalIntensity += Math.abs(intensity);
+          }
+        }
+      }
+    }
+    
+    return sensorium;
+  }, []);
+  
+  // The core of MDO - construction through pragmatic engagement
+  const constructFromExperience = useCallback((agent, energyChange, sensoriumBefore, sensoriumAfter, behavior, interactionPos, timeStep) => {
+    // CRITICAL FIX: Actually construct objects in the phenomenal world based on experiences
+    
+    // 1. MOVEMENT CONSTRUCTION - The agent discovers what "Field" means through successful movement
+    if (behavior.type === 'move') {
+      const attemptedX = agent.x + behavior.dx;
+      const attemptedY = agent.y + behavior.dy;
+      
+      // Check if movement was successful by checking the moveSuccess flag
+      if (behavior.moveSuccess) {
+        // SUCCESS - Construct "Field" (moveable space) at the new location
+        const fieldKey = `${agent.x},${agent.y}`; // Current position after successful move
+        
+        // If gained energy while moving, construct appropriate object based on energy amount
+        if (energyChange > 1) {
+          let constructedObject = 'Field';
+          if (energyChange >= 40) {
+            constructedObject = 'Berry';
+          } else if (energyChange >= 15) {
+            constructedObject = 'Bush';
+          } else if (energyChange >= 5) {
+            constructedObject = 'Grass';
+          }
+          
+          agent.phenomenalWorld.set(fieldKey, {
+            constructedObject,
+            construction: energyChange >= 5 ? 'energy-source' : 'moveable-space',
+            reliability: 100,
+            lastSeen: timeStep,
+            consumed: true,
+            energyGained: energyChange
+          });
+        } else if (!agent.phenomenalWorld.has(fieldKey) || agent.phenomenalWorld.get(fieldKey).constructedObject !== 'Berry') {
+          // Only construct Field if not already a Berry location
+          agent.phenomenalWorld.set(fieldKey, {
+            constructedObject: 'Field',
+            construction: 'moveable-space',
+            reliability: 100,
+            lastSeen: timeStep,
+            consumed: false
+          });
+        }
+      } else {
+        // FAILED MOVEMENT - Construct obstacle based on resistance
+        if (attemptedX >= 0 && attemptedX < WORLD_SIZE && attemptedY >= 0 && attemptedY < WORLD_SIZE) {
+          const obstacleKey = `${attemptedX},${attemptedY}`;
+          // Only construct obstacle if we don't already know it's a field or energy source
+          const existing = agent.phenomenalWorld.get(obstacleKey);
+          if (!existing || (!existing.constructedObject || existing.constructedObject === 'Field')) {
+            // Check substrate to determine if Tree or Stone based on resistance
+            const targetCell = sensoriumAfter.substrate[attemptedY][attemptedX];
+            const isStone = targetCell && targetCell.hiddenProperties.resistance === 1.0;
+            
+            agent.phenomenalWorld.set(obstacleKey, {
+              constructedObject: isStone ? 'Stone' : 'Tree',
+              construction: 'obstacle',
+              reliability: 100,
+              lastSeen: timeStep,
+              consumed: false
+            });
+          }
+        }
+      }
+    }
+    
+    // 2. CONSUMPTION CONSTRUCTION - The agent discovers objects through energy gain
+    if (behavior.type === 'consume' && energyChange > 1) {
+      const consumeKey = `${agent.x},${agent.y}`;
+      let constructedObject = 'Field';
+      
+      if (energyChange >= 40) {
+        constructedObject = 'Berry';
+      } else if (energyChange >= 15) {
+        constructedObject = 'Bush';
+      } else if (energyChange >= 5) {
+        constructedObject = 'Grass';
+      }
+      
+      agent.phenomenalWorld.set(consumeKey, {
+        constructedObject,
+        construction: 'energy-source',
+        reliability: 100,
+        lastSeen: timeStep,
+        consumed: true,
+        energyGained: energyChange
+      });
+    }
+    
+    // 3. FIELD CONSTRUCTION for current position if agent is alive and not stuck
+    const currentKey = `${agent.x},${agent.y}`;
+    const currentEntry = agent.phenomenalWorld.get(currentKey);
+    if (!currentEntry || (!currentEntry.constructedObject && agent.alive)) {
+      agent.phenomenalWorld.set(currentKey, {
+        constructedObject: 'Field',
+        construction: 'moveable-space',
+        reliability: 100,
+        lastSeen: timeStep,
+        consumed: false
+      });
+    }
+    
+    // Build gradient understanding for predictions
+    sensoriumBefore.perturbations.forEach(pert => {
+      const key = pert.key;
+      if (!agent.constructions[key]) {
+        agent.constructions[key] = {
+          encounters: 0,
+          predictions: 0,
+          confirmations: 0,
+          totalEnergyChange: 0,
+          associatedBehavior: 'unknown',
+          reliability: 0,
+          constructedObject: null,
+          lastPrediction: null
+        };
+      }
+      
+      const construction = agent.constructions[key];
+      construction.encounters++;
+      
+      // Update based on outcome
+      if (energyChange > 10) {
+        construction.totalEnergyChange += energyChange;
+        construction.reliability = construction.totalEnergyChange / construction.encounters;
+        construction.lastPrediction = 'valuable';
+        construction.confirmations++;
+      } else if (behavior.type === 'move' && energyChange === -1) {
+        construction.lastPrediction = 'obstacle';
+        construction.reliability = -10;
+        construction.confirmations++;
+      } else {
+        construction.lastPrediction = 'neutral';
+      }
+      
+      construction.predictions++;
+    });
+  }, []);
+  
+  // Homeostatic regulation drives behavior - BASED ON CONSTRUCTED WORLD
+  const selectBehavior = useCallback((agent, sensoriumData, substrate) => {
+    if (!agent.alive || agent.energy <= 0) return { type: 'none' };
+    
+    // HOMEOSTATIC DRIVE - energy deviation from baseline
+    const energyDeviation = agent.energy - agent.homeostasis.energyBaseline;
+    const needsEnergy = energyDeviation < 0;
+    
+    // First, check current position for consumption opportunity
+    const currentCell = substrate[agent.y][agent.x];
+    if (needsEnergy && currentCell.hiddenProperties.energyPotential > 0) {
+      return {
+        type: 'consume',
+        reason: 'energy-at-current-location'
+      };
+    }
+    
+    // PREDICTION-BASED MOVEMENT - use constructed knowledge
+    const directions = [
+      {dx: 0, dy: -1}, // up
+      {dx: 1, dy: 0},  // right
+      {dx: 0, dy: 1},  // down
+      {dx: -1, dy: 0}  // left
+    ];
+    
+    // Evaluate each direction based on constructed world
+    const evaluatedDirections = directions.map(dir => {
+      const newX = agent.x + dir.dx;
+      const newY = agent.y + dir.dy;
+      
+      // Check bounds
+      if (newX < 0 || newX >= WORLD_SIZE || newY < 0 || newY >= WORLD_SIZE) {
+        return { ...dir, score: -1000, reason: 'out-of-bounds' };
+      }
+      
+      const targetKey = `${newX},${newY}`;
+      const knownLocation = agent.phenomenalWorld.get(targetKey);
+      
+      let score = 0;
+      let reason = 'unknown';
+      
+      if (knownLocation) {
+        if (knownLocation.constructedObject === 'Tree' || knownLocation.constructedObject === 'Stone') {
+          score = -100; // Known obstacle
+          reason = 'known-obstacle';
+        } else if (knownLocation.constructedObject === 'Berry' && !knownLocation.consumed) {
+          score = needsEnergy ? 100 : 10; // Known high-value energy source
+          reason = 'known-berry';
+        } else if (knownLocation.constructedObject === 'Bush' && !knownLocation.consumed) {
+          score = needsEnergy ? 50 : 5; // Known medium-value energy source
+          reason = 'known-bush';
+        } else if (knownLocation.constructedObject === 'Grass' && !knownLocation.consumed) {
+          score = needsEnergy ? 30 : 3; // Known low-value energy source
+          reason = 'known-grass';
+        } else if ((knownLocation.constructedObject === 'Berry' || 
+                    knownLocation.constructedObject === 'Bush' || 
+                    knownLocation.constructedObject === 'Grass') && knownLocation.consumed) {
+          // Check if enough time has passed for regrowth
+          const timeSinceConsumption = agent.timeStep - knownLocation.lastSeen;
+          const regrowthTime = knownLocation.constructedObject === 'Berry' ? 800 : 
+                               knownLocation.constructedObject === 'Bush' ? 300 : 100;
+          if (timeSinceConsumption > regrowthTime) {
+            score = needsEnergy ? 50 : 5; // Might have regrown
+            reason = 'potential-regrowth';
+          } else {
+            score = -10; // Recently consumed
+            reason = 'consumed-resource';
+          }
+        } else if (knownLocation.constructedObject === 'Field') {
+          score = 1; // Known moveable space
+          reason = 'known-field';
+        }
+      } else {
+        // Unknown location - exploration value
+        score = 5;
+        reason = 'exploration';
+        
+        // Check if we have gradient predictions for this location
+        sensoriumData.perturbations.forEach(pert => {
+          if (pert.worldX === newX && pert.worldY === newY) {
+            if (pert.intensity > 0.5) {
+              score = needsEnergy ? 20 : 10;
+              reason = 'positive-gradient';
+            } else if (pert.intensity < -0.5) {
+              score = -50;
+              reason = 'negative-gradient';
+            }
+          }
+        });
+      }
+      
+      // Add randomness for exploration
+      score += Math.random() * 2;
+      
+      return { ...dir, score, reason };
+    });
+    
+    // Sort by score and pick the best
+    evaluatedDirections.sort((a, b) => b.score - a.score);
+    const bestDirection = evaluatedDirections[0];
+    
+    if (bestDirection.score > -50) {
+      return {
+        type: 'move',
+        dx: bestDirection.dx,
+        dy: bestDirection.dy,
+        reason: bestDirection.reason
+      };
+    }
+    
+    // If all directions are bad, try to move anyway (desperation)
+    return {
+      type: 'move',
+      dx: directions[Math.floor(Math.random() * directions.length)].dx,
+      dy: directions[Math.floor(Math.random() * directions.length)].dy,
+      reason: 'desperation'
+    };
+  }, []);
+  
+  // Simulation step
+  const step = useCallback(() => {
+    setState(prev => {
+      if (!prev.substrate || prev.paused) return prev;
+      
+      const newState = { ...prev };
+      const { substrate, agent } = newState;
+      
+      // If agent is dead, don't update but keep showing the state
+      if (!agent.alive || agent.energy <= 0) {
+        agent.alive = false;
+        return newState;
+      }
+      
+      // Store current timeStep on agent for use in behavior selection
+      agent.timeStep = newState.timeStep;
+      
+      newState.timeStep++;
+      
+      // Get sensory data BEFORE action
+      const sensoriumBefore = getSensorium(agent, substrate);
+      
+      // Select behavior based on homeostatic needs and predictions
+      const behavior = selectBehavior(agent, sensoriumBefore, substrate);
+      agent.currentBehavior = behavior;
+      
+      // Execute behavior
+      let energyChange = 0;
+      let interactionPos = { x: agent.x, y: agent.y }; // Start at current position
+      let moveSuccess = false;
+      
+      if (behavior.type === 'move') {
+        const newX = agent.x + behavior.dx;
+        const newY = agent.y + behavior.dy;
+        
+        if (newX >= 0 && newX < WORLD_SIZE && newY >= 0 && newY < WORLD_SIZE) {
+          const targetCell = substrate[newY][newX];
+          
+          if (targetCell.hiddenProperties.resistance < 0.8) {
+            // ACTUALLY MOVE THE AGENT
+            agent.x = newX;
+            agent.y = newY;
+            interactionPos = { x: newX, y: newY }; // Update interaction position
+            energyChange = -1; // Movement cost
+            moveSuccess = true;
+            
+            // Check if we can consume immediately upon arrival
+            if (targetCell.hiddenProperties.energyPotential > 0) {
+              energyChange += targetCell.hiddenProperties.energyPotential;
+              targetCell.hiddenProperties.energyPotential = 0;
+              targetCell.hiddenProperties.lastInteraction = newState.timeStep;
+            }
+          } else {
+            energyChange = -1; // Failed movement - hit obstacle
+            // interactionPos should be the ATTEMPTED location for obstacle construction
+            interactionPos = { x: newX, y: newY };
+          }
+        } else {
+          energyChange = -1; // Tried to move out of bounds
+        }
+        
+        // Update behavior with actual result
+        behavior.moveSuccess = moveSuccess;
+      } else if (behavior.type === 'consume') {
+        // Try to consume at current position
+        const currentCell = substrate[agent.y][agent.x];
+        
+        if (currentCell.hiddenProperties.energyPotential > 0) {
+          energyChange = currentCell.hiddenProperties.energyPotential;
+          currentCell.hiddenProperties.energyPotential = 0;
+          currentCell.hiddenProperties.lastInteraction = newState.timeStep;
+        } else {
+          energyChange = -1; // Failed consumption - wasted effort
+        }
+      }
+      
+      // Update energy with cap
+      agent.energy = Math.min(MAX_ENERGY, agent.energy + energyChange);
+      if (agent.energy <= 0) {
+        agent.energy = 0;
+        agent.alive = false;
+      }
+      
+      // Update agent state properly
+      newState.agent = { ...agent };
+      
+      // Get sensory data AFTER action
+      const sensoriumAfter = getSensorium(agent, substrate);
+      
+      // ALWAYS construct meaning from experience - predictions and confirmations
+      constructFromExperience(agent, energyChange, sensoriumBefore, sensoriumAfter, behavior, interactionPos, newState.timeStep);
+      
+      // Update experience stream
+      agent.experienceStream.push({
+        timeStep: newState.timeStep,
+        position: { x: agent.x, y: agent.y },
+        behavior,
+        energyChange,
+        sensorium: sensoriumAfter
+      });
+      
+      // Keep experience stream manageable
+      if (agent.experienceStream.length > 1000) {
+        agent.experienceStream = agent.experienceStream.slice(-500);
+      }
+      
+      // Update homeostatic tracking
+      agent.homeostasis.deviations.push(agent.energy - agent.homeostasis.energyBaseline);
+      if (agent.homeostasis.deviations.length > 100) {
+        agent.homeostasis.deviations.shift();
+      }
+      
+      // Update phenomenal world with predictions from sensory data
+      sensoriumAfter.perturbations.forEach(pert => {
+        const construction = agent.constructions[pert.key];
+        if (construction) {
+          const worldX = pert.worldX;
+          const worldY = pert.worldY;
+          const worldKey = `${worldX},${worldY}`;
+          
+          // Check existing entry
+          const existingEntry = agent.phenomenalWorld.get(worldKey);
+          
+          // Only update predictions if no confirmed object exists
+          if (!existingEntry || !existingEntry.constructedObject) {
+            agent.phenomenalWorld.set(worldKey, {
+              construction: pert.key,
+              reliability: construction.reliability,
+              object: construction.constructedObject,
+              prediction: construction.lastPrediction,
+              confirmations: construction.confirmations,
+              lastSeen: newState.timeStep
+            });
+          }
+        }
+      });
+      
+      // Environmental changes - resources regenerate
+      for (let y = 0; y < WORLD_SIZE; y++) {
+        for (let x = 0; x < WORLD_SIZE; x++) {
+          const cell = substrate[y][x];
+          if (cell.hiddenProperties.energyPotential === 0 && 
+              cell.hiddenProperties.originalEnergy > 0 &&
+              cell.hiddenProperties.growthCycle > 0 &&
+              newState.timeStep - cell.hiddenProperties.lastInteraction > cell.hiddenProperties.growthCycle) {
+            // Regenerate to original energy value
+            cell.hiddenProperties.energyPotential = cell.hiddenProperties.originalEnergy;
+            
+            // CRITICAL: Update phenomenal world to reflect regrowth
+            const regenKey = `${x},${y}`;
+            const phenomenalEntry = agent.phenomenalWorld.get(regenKey);
+            if (phenomenalEntry && (phenomenalEntry.constructedObject === 'Berry' || 
+                                   phenomenalEntry.constructedObject === 'Bush' || 
+                                   phenomenalEntry.constructedObject === 'Grass')) {
+              // Update the resource to show it's available again
+              phenomenalEntry.consumed = false;
+              phenomenalEntry.lastSeen = newState.timeStep;
+            }
+          }
+        }
+      }
+      
+      // DO NOT DELETE CONSTRUCTED OBJECTS - they persist in the agent's world
+      // Only clean up pure predictions that are very old with 10% chance
+      const cutoffTime = newState.timeStep - 2000;
+      agent.phenomenalWorld.forEach((value, key) => {
+        // Only delete if it's a prediction (no constructedObject) and very old, with 10% chance
+        if (!value.constructedObject && value.lastSeen < cutoffTime && Math.random() < 0.1) {
+          agent.phenomenalWorld.delete(key);
+        }
+      });
+      
+      // Calculate single consciousness metric
+      const calculateConsciousness = () => {
+        // DEAD = NO CONSCIOUSNESS
+        if (!agent.alive || agent.energy <= 0) return 0;
+        
+        // NO MOVEMENT = NO CONSCIOUSNESS
+        if (agent.experienceStream.length < 10) return 0;
+        
+        // Count unique positions visited (actual movement)
+        const uniquePositions = new Set(
+          agent.experienceStream.map(e => `${e.position.x},${e.position.y}`)
+        );
+        
+        // If stuck in one place, consciousness is near zero
+        if (uniquePositions.size < 3) return 0;
+        
+        // Count constructed objects by type
+        const objectCounts = {};
+        let totalObjects = 0;
+        let totalConstructedLocations = 0;
+        
+        agent.phenomenalWorld.forEach(entry => {
+          if (entry.constructedObject) {
+            totalConstructedLocations++;
+            if (entry.constructedObject !== 'Field') {
+              objectCounts[entry.constructedObject] = (objectCounts[entry.constructedObject] || 0) + 1;
+              totalObjects++;
+            }
+          }
+        });
+        
+        // How many DIFFERENT object types discovered?
+        const objectTypes = Object.keys(objectCounts).length;
+        
+        // Movement is essential for consciousness - weight world SIZE heavily
+        const worldSizeScore = Math.sqrt(totalConstructedLocations) * 2; // Weight world size
+        const movementScore = Math.sqrt(uniquePositions.size) * 5;
+        
+        // Discovery score - diversity of objects
+        const discoveryScore = objectTypes * 10 + Math.sqrt(totalObjects) * 3;
+        
+        // Energy/aliveness factor
+        const energyFactor = Math.min(1.0, agent.energy / 200);
+        
+        // Exploration ratio - penalize camping
+        const explorationRatio = uniquePositions.size / Math.max(1, agent.experienceStream.length / 10);
+        const explorationScore = Math.min(20, explorationRatio * 20);
+        
+        return Math.min(100, (worldSizeScore + movementScore + discoveryScore + explorationScore) * energyFactor);
+      };
+      
+      newState.consciousness = calculateConsciousness();
+      
+      return newState;
+    });
+  }, [getSensorium, selectBehavior, constructFromExperience]);
+  
+  // Run simulation loop
+  const intervalRef = useRef(null);
+  
+  useEffect(() => {
+    if (!state.paused && state.agent.alive) {
+      intervalRef.current = setInterval(() => {
+        step();
+      }, 1000 / state.speed);
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    }
+    
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [state.paused, state.agent.alive, state.speed, step]);
+  
+  // Reset simulation
+  const reset = () => {
+    const startX = 20;
+    const startY = 20;
+    const initialAgent = {
+      x: startX,
+      y: startY,
+      energy: 500,
+      experienceStream: [],
+      constructions: {},
+      phenomenalWorld: new Map(),
+      alive: true,
+      currentBehavior: null,
+      homeostasis: {
+        energyBaseline: 300,
+        deviations: []
+      }
+    };
+    
+    // Agent starts by constructing its initial position as Field
+    initialAgent.phenomenalWorld.set(`${startX},${startY}`, {
+      constructedObject: 'Field',
+      construction: 'moveable-space',
+      reliability: 100,
+      lastSeen: 0,
+      consumed: false
+    });
+    
+    setState({
+      substrate: generateSubstrate(),
+      agent: initialAgent,
+      timeStep: 0,
+      consciousness: 0,
+      viewMode: 'phenomenal',
+      speed: 10,
+      paused: true
+    });
+  };
+  
+  // Agent sprite component
+  const AgentSprite = ({ size, energy }) => {
+    const healthPercent = Math.max(0, Math.min(100, (energy / 500) * 100));
+    const spriteColor = energy > 100 ? '#22c55e' : energy > 50 ? '#eab308' : '#ef4444';
+    
+    return (
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div 
+          className="rounded-full transition-all duration-300"
+          style={{
+            width: `${size * 0.6}px`,
+            height: `${size * 0.6}px`,
+            backgroundColor: spriteColor,
+            boxShadow: `0 0 ${healthPercent / 10}px ${spriteColor}`,
+            opacity: energy > 0 ? 1 : 0.3
+          }}
+        />
+      </div>
+    );
+  };
+  
+  // Render a single cell
+  const renderCell = (cell, x, y, agent, viewMode) => {
+    const cellSize = 15;
+    const isAgent = agent.x === x && agent.y === y;
+    
+    if (viewMode === 'phenomenal') {
+      const phenomenal = agent.phenomenalWorld.get(`${x},${y}`);
+      let backgroundColor = '#ffffff';
+      let opacity = 1;
+      let content = null;
+      
+      if (!agent.alive) {
+        backgroundColor = '#000000';
+        opacity = 0.8;
+      } else if (phenomenal && (phenomenal.constructedObject || phenomenal.object)) {
+        const objType = phenomenal.constructedObject || phenomenal.object;
+        
+        if (objType === 'Field') {
+          backgroundColor = `hsl(120, 40%, 70%)`; // Light green for moveable space
+          opacity = 0.8;
+        } else if (objType === 'Bush') {
+          backgroundColor = `hsl(120, 60%, 35%)`;
+          content = (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-xs">🌿</div>
+            </div>
+          );
+        } else if (objType === 'Berry') {
+          if (phenomenal.consumed) {
+            backgroundColor = `hsl(340, 30%, 80%)`; // Faded pink for consumed
+            content = (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-xs opacity-50">○</div>
+              </div>
+            );
+          } else {
+            backgroundColor = `hsl(340, 70%, 50%)`;
+            content = (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-xs">🍓</div>
+              </div>
+            );
+          }
+          opacity = 1;
+        } else if (objType === 'Grass') {
+          backgroundColor = `hsl(90, 50%, 50%)`;
+          if (phenomenal.consumed) {
+            backgroundColor = `hsl(90, 30%, 70%)`; // Faded green for consumed grass
+            opacity = 0.7;
+          }
+          content = (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-xs">🌱</div>
+            </div>
+          );
+        } else if (objType === 'Tree') {
+          backgroundColor = `hsl(100, 30%, 25%)`;
+          content = (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-xs">🌳</div>
+            </div>
+          );
+        } else if (objType === 'Stone') {
+          backgroundColor = `hsl(0, 0%, 50%)`;
+          content = (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-xs">⬤</div>
+            </div>
+          );
+        }
+      } else if (phenomenal) {
+        // Show predictions as semi-transparent
+        if (phenomenal.prediction) {
+          if (phenomenal.prediction === 'potentially-valuable' || 
+              phenomenal.prediction === 'valuable') {
+            backgroundColor = `hsl(60, 50%, 70%)`; // Light yellow for potential value
+            content = (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-xs opacity-50">?</div>
+              </div>
+            );
+          } else if (phenomenal.prediction === 'potentially-obstacle' || 
+                     phenomenal.prediction === 'obstacle') {
+            backgroundColor = `hsl(0, 30%, 60%)`; // Dim red for potential obstacle
+            content = (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-xs opacity-50">!</div>
+              </div>
+            );
+          } else {
+            backgroundColor = `hsl(200, 20%, 80%)`; // Light blue for neutral
+          }
+          opacity = 0.3 + (phenomenal.predictions || 0) / 20;
+        }
+      } else {
+        // Show trace of exploration
+        const visited = agent.experienceStream.some(exp => {
+          const dist = Math.abs(exp.position.x - x) + Math.abs(exp.position.y - y);
+          return dist <= 2; // Was in sensory range
+        });
+        
+        if (visited) {
+          backgroundColor = '#f5f5f5';
+        }
+      }
+      
+      return (
+        <div
+          key={`${x}-${y}`}
+          className="relative border border-gray-200"
+          style={{
+            width: `${cellSize}px`,
+            height: `${cellSize}px`,
+            backgroundColor,
+            opacity
+          }}
+        >
+          {content}
+          {isAgent && agent.alive && <AgentSprite size={cellSize} energy={agent.energy} />}
+        </div>
+      );
+    } else {
+      // Substrate view - show raw perturbations
+      const energy = cell.hiddenProperties.energyPotential;
+      const resistance = cell.hiddenProperties.resistance;
+      const gradient = cell.hiddenProperties.gradientIntensity || 0;
+      
+      let backgroundColor = '#e5e7eb';
+      
+      if (resistance === 1.0) {
+        // Stone (80-100%)
+        backgroundColor = `hsl(0, 0%, 20%)`;
+      } else if (resistance > 0.8) {
+        // Tree (60-80%)
+        backgroundColor = `hsl(100, 20%, 30%)`;
+      } else if (energy > 40) {
+        // Berry (40-60%)
+        backgroundColor = `hsl(340, 70%, 50%)`;
+      } else if (energy > 15) {
+        // Bush (20-40%)
+        backgroundColor = `hsl(120, 60%, 40%)`;
+      } else if (energy > 5) {
+        // Grass (0-20%)
+        backgroundColor = `hsl(90, 50%, 60%)`;
+      } else {
+        // Empty field
+        backgroundColor = '#f5f5f5';
+      }
+      
+      return (
+        <div
+          key={`${x}-${y}`}
+          className="relative border border-gray-100"
+          style={{
+            width: `${cellSize}px`,
+            height: `${cellSize}px`,
+            backgroundColor
+          }}
+        >
+          {isAgent && <AgentSprite size={cellSize} energy={agent.energy} />}
+        </div>
+      );
+    }
+  };
+  
+  return (
+    <div className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">MDO Consciousness: Pure Emergence</h1>
+          <p className="text-gray-600">The agent IS its world-construction</p>
+        </div>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white rounded-lg shadow-lg p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">
+                {state.viewMode === 'phenomenal' ? 'The Agent\'s Reality' : 'Substrate Perturbations'}
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setState(s => ({ ...s, paused: !s.paused }))}
+                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors flex items-center gap-2"
+                >
+                  {state.paused ? <Play size={20} /> : <Pause size={20} />}
+                  {state.paused ? 'Play' : 'Pause'}
+                </button>
+                <button
+                  onClick={reset}
+                  className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors flex items-center gap-2"
+                >
+                  <RotateCcw size={20} />
+                  Reset
+                </button>
+              </div>
+            </div>
+            
+            <div className="mb-4 flex items-center gap-4">
+              <label className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700">Speed:</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="240"
+                  value={state.speed}
+                  onChange={(e) => setState(s => ({ ...s, speed: parseInt(e.target.value) }))}
+                  className="w-32"
+                />
+                <span className="text-sm text-gray-600">{state.speed} steps/s</span>
+              </label>
+              
+              <button
+                onClick={() => setState(s => ({ ...s, viewMode: s.viewMode === 'phenomenal' ? 'substrate' : 'phenomenal' }))}
+                className="px-3 py-1 bg-purple-500 text-white rounded text-sm hover:bg-purple-600 transition-colors flex items-center gap-2"
+              >
+                <Activity size={16} />
+                {state.viewMode === 'phenomenal' ? 'Substrate' : 'Phenomenal'}
+              </button>
+              
+              <div className="text-sm text-gray-600">
+                Step: {state.timeStep} {state.paused && <span className="text-red-600 font-bold">(PAUSED)</span>}
+              </div>
+            </div>
+            
+            <div className="border border-gray-300 inline-block bg-gray-50 p-2 rounded">
+              <div 
+                className="grid"
+                style={{
+                  gridTemplateColumns: `repeat(${WORLD_SIZE}, 15px)`,
+                  gap: '0'
+                }}
+              >
+                {state.substrate && state.substrate.map((row, y) => 
+                  row.map((cell, x) => renderCell(cell, x, y, state.agent, state.viewMode))
+                )}
+              </div>
+            </div>
+            
+            <div className="mt-4 text-sm text-gray-600">
+              {state.viewMode === 'phenomenal' ? (
+                <>
+                  <p>This IS the agent's world. The agent first predicts (?) what gradients might mean, then confirms through interaction:</p>
+                  <p>Berries 🍓, Bushes 🌿, Grass 🌱, Trees 🌳, and Stones ⬤. Light areas show predictions; solid colors = confirmed objects.</p>
+                  <p>When the agent dies, this world vanishes—all that remains is the mathematical substrate.</p>
+                </>
+              ) : (
+                <>
+                  <p>The substrate contains only mathematical gradients. Warm colors show positive gradients, cool colors show negative gradients.</p>
+                  <p>The agent must construct meaning from these undifferentiated variations through interaction.</p>
+                </>
+              )}
+            </div>
+            
+            {state.agent.currentBehavior && (
+              <div className="mt-4 p-3 bg-gray-100 rounded">
+                <div className="text-sm">
+                  <span className="font-medium">Current behavior:</span> {state.agent.currentBehavior.type}
+                  {state.agent.currentBehavior.dx !== undefined && (
+                    <span className="text-gray-600"> (dx:{state.agent.currentBehavior.dx}, dy:{state.agent.currentBehavior.dy})</span>
+                  )}
+                  {state.agent.currentBehavior.reason && (
+                    <span className="text-gray-600"> - {state.agent.currentBehavior.reason}</span>
+                  )}
+                  {state.agent.currentBehavior.moveSuccess !== undefined && (
+                    <span className={state.agent.currentBehavior.moveSuccess ? "text-green-600" : "text-red-600"}>
+                      {state.agent.currentBehavior.moveSuccess ? " ✓ Success" : " ✗ Failed"}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Position: ({state.agent.x}, {state.agent.y}) | Energy: {state.agent.energy}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <Brain className="text-purple-500" />
+                Consciousness
+              </h3>
+              <div className="mb-4">
+                <div className="text-sm text-gray-600 mb-1">World-Construction Coherence</div>
+                <div className="w-full bg-gray-200 rounded-full h-4">
+                  <div 
+                    className="bg-purple-500 h-4 rounded-full transition-all duration-500"
+                    style={{ width: `${state.consciousness}%` }}
+                  />
+                </div>
+                <div className="text-right text-sm text-gray-600 mt-1">{state.consciousness.toFixed(1)}%</div>
+              </div>
+              <p className="text-xs text-gray-500">
+                Consciousness emerges from the agent's ability to predict and construct its world. 
+                Higher consciousness means more accurate predictions, diverse object types discovered, 
+                and a larger, more coherent phenomenal world.
+              </p>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <Zap className="text-yellow-500" />
+                Homeostatic State
+              </h3>
+              <div className="space-y-3">
+                <div>
+                  <div className="text-sm text-gray-600 mb-1">Energy</div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div 
+                      className="bg-yellow-500 h-3 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${Math.max(0, Math.min(100, (state.agent.energy / MAX_ENERGY) * 100))}%`,
+                        backgroundColor: state.agent.energy > 300 ? '#22c55e' : 
+                                       state.agent.energy > 100 ? '#eab308' : '#ef4444'
+                      }}
+                    />
+                  </div>
+                  <div className="text-right text-sm text-gray-600 mt-1">{state.agent.energy}/{MAX_ENERGY}</div>
+                </div>
+                
+                {state.agent.alive && (
+                  <>
+                    <div className="text-xs text-gray-500">
+                      Last energy change: <span className={state.agent.experienceStream.length > 0 && 
+                        state.agent.experienceStream[state.agent.experienceStream.length - 1].energyChange > 0 ? 
+                        'text-green-600' : 'text-red-600'}>
+                        {state.agent.experienceStream.length > 0 ? 
+                          state.agent.experienceStream[state.agent.experienceStream.length - 1].energyChange : 0}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Experience count: {state.agent.experienceStream.length}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">World Construction Progress</h3>
+              <div className="text-sm text-gray-600 mb-2">Objects discovered through exploration:</div>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  {['Field', 'Berry', 'Tree', 'Grass', 'Stone', 'Bush'].map(objType => {
+                    const all = Array.from(state.agent.phenomenalWorld.values());
+                    const count = all.filter(p => p.constructedObject === objType).length;
+                    const consumedCount = all.filter(p => p.constructedObject === objType && p.consumed).length;
+                    
+                    return (
+                      <div key={objType} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                        <span className="font-medium">
+                          {objType === 'Field' && '🟩 Fields'}
+                          {objType === 'Berry' && '🍓 Berries'}
+                          {objType === 'Grass' && '🌱 Grass'}
+                          {objType === 'Tree' && '🌳 Trees'}
+                          {objType === 'Stone' && '⬤ Stones'}
+                          {objType === 'Bush' && '🌿 Bushes'}
+                        </span>
+                        <span className="font-bold">
+                          {objType === 'Berry' || objType === 'Bush' || objType === 'Grass' ? 
+                            `${count - consumedCount} (${consumedCount})` : count}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="text-xs text-gray-500 mt-2">
+                  Total predictions made: {Object.keys(state.agent.constructions).length}
+                  <br />
+                  Unique locations explored: {new Set(
+                    state.agent.experienceStream.map(e => `${e.position.x},${e.position.y}`)
+                  ).size}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div className="mt-6 bg-white rounded-lg shadow-lg p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">MDO Core Facts: Objects Through Interaction</h3>
+          <div className="text-sm text-gray-600 space-y-2">
+            <p>
+              The agent must predict what gradients mean BEFORE moving. It sees a gradient pattern and predicts: 
+              "potentially valuable" or "potentially obstacle." Only through movement and interaction do these predictions 
+              become objects. A confirmed valuable prediction BECOMES a berry. A confirmed obstacle BECOMES a tree. 
+              The construction IS the object. Without predictions, the agent cannot move meaningfully through its world.
+            </p>
+            <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mt-3">
+              <p className="font-medium text-yellow-800">? = Prediction (unconfirmed)</p>
+              <p className="text-yellow-700">? = Predicted valuable</p>
+              <p className="text-yellow-700">! = Predicted obstacle</p>
+              <p className="font-medium text-yellow-800 mt-2">Solid colors = Confirmed objects</p>
+              <p className="text-yellow-700">Current behavior: move (testing-prediction | seeking-object)</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="mt-6 bg-blue-50 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-blue-900 mb-3">Consciousness = World-Construction</h3>
+          <p className="text-sm text-blue-800">
+            The agent's consciousness is the richness and coherence of its constructed world. A single berry does not make consciousness. 
+            Only through exploration, prediction, confirmation, and the construction of a diverse object-world does consciousness emerge. 
+            When the agent dies, its entire world—all those berries, trees, and stones—vanishes with it. The world exists only through 
+            the agent's construction.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MDOConsciousnessSimulation;
+    
+    ReactDOM.render(<MDOConsciousnessSimulation />, document.getElementById('root'));
+  </script>
+</body>
+</html>
