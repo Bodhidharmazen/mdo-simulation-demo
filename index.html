@@ -493,6 +493,15 @@
       }
       agent.timeStep = state.timeStep;
       state.timeStep++;
+
+      // --- THINKING DELAY: For first 10 steps, do nothing except "think" ---
+      if (state.timeStep <= 10) {
+        agent.currentBehavior = { type: 'thinking', reason: 'initialization', thinking: true };
+        // Still update UI and consciousness
+        state.consciousness = 0;
+        return;
+      }
+
       const sensoriumBefore = getSensorium(agent, state.substrate);
       const behavior = selectBehavior(agent, sensoriumBefore, state.substrate);
       agent.currentBehavior = behavior;
@@ -698,15 +707,11 @@
         cellDiv.innerHTML = content;
         if (isAgent && agent.alive) renderAgentSprite(cellDiv, agent.energy);
       } else {
-        const energy = cell.hiddenProperties.energyPotential;
-        const resistance = cell.hiddenProperties.resistance;
-        let backgroundColor = '#e5e7eb';
-        if (resistance === 1.0) backgroundColor = 'hsl(0,0%,20%)';
-        else if (resistance > 0.8) backgroundColor = 'hsl(100,20%,30%)';
-        else if (energy > 40) backgroundColor = 'hsl(340,70%,50%)';
-        else if (energy > 15) backgroundColor = 'hsl(120,60%,40%)';
-        else if (energy > 5) backgroundColor = 'hsl(90,50%,60%)';
-        else backgroundColor = '#f5f5f5';
+        // Substrate: graduated grey based on gradientIntensity
+        const gradient = cell.hiddenProperties.gradientIntensity || 0;
+        // Map 0 (black) to 100 (white)
+        const grey = Math.round(255 * (gradient / 100));
+        const backgroundColor = `rgb(${grey},${grey},${grey})`;
         cellDiv.style.backgroundColor = backgroundColor;
         if (isAgent) renderAgentSprite(cellDiv, agent.energy);
       }
