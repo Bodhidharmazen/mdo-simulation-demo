@@ -2,24 +2,29 @@
 <html>
 <head>
   <title>MDO Simulation</title>
-  <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/babel-standalone@6.26.0/babel.min.js"></script>
-  <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { margin: 20px; font-family: Arial, sans-serif; }
+    body { 
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    }
     .grid { display: grid; gap: 1px; }
     .cell { width: 15px; height: 15px; border: 1px solid #ddd; }
   </style>
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel">
-    // Your React component code here
+  <script type="text/babel" data-type="module">
     const { useState, useEffect, useCallback, useRef } = React;
-    const { Play, Pause, RotateCcw, Zap, Brain, Activity } = lucideReact;
-    
-    // import React, { useState, useEffect, useCallback, useRef } from 'react';
+    const { createRoot } = ReactDOM;
+    const { Play, Pause, RotateCcw, Zap, Brain, Activity } = lucideReact.icons;
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Play, Pause, RotateCcw, Zap, Brain, Activity } from 'lucide-react';
 
 const MDOConsciousnessSimulation = () => {
@@ -1174,7 +1179,18 @@ const MDOConsciousnessSimulation = () => {
 
 export default MDOConsciousnessSimulation;
     
-    ReactDOM.render(<MDOConsciousnessSimulation />, document.getElementById('root'));
+    // Example:
+    const MDOConsciousnessSimulation = () => {
+      return React.createElement('div', {className: 'p-4'}, 
+        React.createElement('h1', {className: 'text-2xl font-bold mb-4'}, 'MDO Simulation'),
+        React.createElement('p', null, 'Your simulation will appear here')
+      );
+    };
+
+    // Render the app
+    const container = document.getElementById('root');
+    const root = createRoot(container);
+    root.render(React.createElement(MDOConsciousnessSimulation));
   </script>
 </body>
 </html>
