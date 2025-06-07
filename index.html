@@ -61,6 +61,7 @@
           <div id="behaviorPanel" class="mt-4 p-3 bg-gray-100 rounded hidden"></div>
         </div>
         <div class="space-y-6">
+          <!-- Consciousness Section -->
           <div class="bg-white rounded-lg shadow-lg p-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
               <span>🧠</span> Consciousness
@@ -76,6 +77,7 @@
               Consciousness emerges from the agent's ability to predict and construct its world. Higher consciousness means more accurate predictions, diverse object types discovered, and a larger, more coherent phenomenal world.
             </p>
           </div>
+          <!-- Homeostatic State Section -->
           <div class="bg-white rounded-lg shadow-lg p-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
               <span>⚡</span> Homeostatic State
@@ -89,7 +91,25 @@
                 <div id="energyLabel" class="text-right text-sm text-gray-600 mt-1">500/1000</div>
               </div>
               <div id="lastEnergyChange" class="text-xs text-gray-500">Last energy change: <span>0</span></div>
+              <div id="experienceCount" class="text-xs text-gray-500">Experience count: 0</div>
             </div>
+          </div>
+          <!-- World Construction Progress Section -->
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <span>🌍</span> World Construction Progress
+            </h3>
+            <div id="objectStats" class="mb-4 text-sm text-gray-700"></div>
+            <div class="mb-2 text-xs text-gray-500" id="predictionStats"></div>
+            <div class="mb-2 text-xs text-gray-500" id="locationStats"></div>
+          </div>
+          <!-- Legend Section -->
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <span>🔎</span> Legend & MDO Core Facts
+            </h3>
+            <div class="mb-2 text-sm" id="legendBox"></div>
+            <div class="text-xs text-gray-500 mt-4" id="mdoFacts"></div>
           </div>
         </div>
       </div>
@@ -719,6 +739,90 @@
         lastChange = state.agent.experienceStream[state.agent.experienceStream.length - 1].energyChange;
       }
       lastEnergyChange.innerHTML = 'Last energy change: <span class="' + (lastChange > 0 ? 'text-green-600' : 'text-red-600') + '">' + lastChange + '</span>';
+      // Experience count
+      document.getElementById('experienceCount').textContent = 'Experience count: ' + state.agent.experienceStream.length;
+
+      // --- World Construction Progress ---
+      // Count objects
+      const objectTypes = [
+        {key: 'Field', icon: '🟩', label: 'Fields'},
+        {key: 'Berry', icon: '🍓', label: 'Berries'},
+        {key: 'Tree', icon: '🌳', label: 'Trees'},
+        {key: 'Grass', icon: '🌱', label: 'Grass'},
+        {key: 'Stone', icon: '⬤', label: 'Stones'},
+        {key: 'Bush', icon: '🌿', label: 'Bushes'},
+      ];
+      const constructedCounts = {};
+      const predictedCounts = {};
+      objectTypes.forEach(obj => { constructedCounts[obj.key] = 0; predictedCounts[obj.key] = 0; });
+      let totalPredictions = 0;
+      let totalConstructed = 0;
+      let totalPredicted = 0;
+      // Constructed objects
+      state.agent.phenomenalWorld.forEach(entry => {
+        if (entry.constructedObject) {
+          constructedCounts[entry.constructedObject] = (constructedCounts[entry.constructedObject] || 0) + 1;
+          totalConstructed++;
+        } else if (entry.prediction) {
+          // Try to infer predicted type from prediction
+          if (entry.prediction === 'valuable') predictedCounts['Berry']++;
+          else if (entry.prediction === 'obstacle') predictedCounts['Tree']++;
+          else if (entry.prediction === 'neutral') predictedCounts['Field']++;
+          totalPredicted++;
+        }
+      });
+      // For Bush and Grass, count as predicted if reliability is positive but not confirmed
+      state.agent.phenomenalWorld.forEach(entry => {
+        if (!entry.constructedObject && entry.reliability > 0 && entry.prediction === 'valuable') {
+          predictedCounts['Bush']++;
+          predictedCounts['Grass']++;
+        }
+      });
+      // For each object type, show discovered and predicted
+      let objectStatsHtml = '<div class="grid grid-cols-2 gap-x-2 gap-y-1">';
+      objectTypes.forEach(obj => {
+        objectStatsHtml += `<div class="flex items-center gap-2"><span>${obj.icon}</span> ${obj.label}</div><div>${constructedCounts[obj.key]}${predictedCounts[obj.key] > 0 ? ` <span class='text-xs text-gray-400'>(${predictedCounts[obj.key]})</span>` : ''}</div>`;
+      });
+      objectStatsHtml += '</div>';
+      document.getElementById('objectStats').innerHTML = objectStatsHtml;
+      // Total predictions
+      let predCount = 0;
+      state.agent.phenomenalWorld.forEach(entry => {
+        if (entry.prediction) predCount++;
+      });
+      document.getElementById('predictionStats').innerHTML = `Total predictions made: ${predCount}`;
+      // Unique locations explored
+      const uniqueLocs = new Set(state.agent.experienceStream.map(e => `${e.position.x},${e.position.y}`));
+      document.getElementById('locationStats').innerHTML = `Unique locations explored: ${uniqueLocs.size}`;
+
+      // --- Legend ---
+      document.getElementById('legendBox').innerHTML = `
+        <div class="mb-1 flex flex-wrap gap-2 items-center">
+          <span class="inline-flex items-center gap-1"><span class="text-green-600">🟩</span> Field</span>
+          <span class="inline-flex items-center gap-1"><span>🍓</span> Berry</span>
+          <span class="inline-flex items-center gap-1"><span>🌳</span> Tree</span>
+          <span class="inline-flex items-center gap-1"><span>🌱</span> Grass</span>
+          <span class="inline-flex items-center gap-1"><span>⬤</span> Stone</span>
+          <span class="inline-flex items-center gap-1"><span>🌿</span> Bush</span>
+        </div>
+        <div class="mt-1 text-xs">
+          <span class="inline-flex items-center gap-1"><span class="opacity-50">?</span> = Prediction (unconfirmed)</span><br>
+          <span class="inline-flex items-center gap-1"><span class="text-yellow-600">?</span> = Predicted valuable</span><br>
+          <span class="inline-flex items-center gap-1"><span class="text-red-600">!</span> = Predicted obstacle</span><br>
+          <span>Solid colors = Confirmed objects</span>
+        </div>
+      `;
+      // --- MDO Core Facts & Explanatory Text ---
+      document.getElementById('mdoFacts').innerHTML = `
+        <b>MDO Core Facts: Objects Through Interaction</b><br>
+        The agent must predict what gradients mean BEFORE moving. It sees a gradient pattern and predicts: <b>"potentially valuable"</b> or <b>"potentially obstacle"</b>.<br>
+        Only through movement and interaction do these predictions become objects. A confirmed valuable prediction BECOMES a berry. A confirmed obstacle BECOMES a tree. The construction <b>IS</b> the object. Without predictions, the agent cannot move meaningfully through its world.<br>
+        <br>
+        <b>Consciousness = World-Construction</b><br>
+        The agent's consciousness is the richness and coherence of its constructed world. A single berry does not make consciousness. Only through exploration, prediction, confirmation, and the construction of a diverse object-world does consciousness emerge. When the agent dies, its entire world—all those berries, trees, and stones—vanishes with it. The world exists only through the agent's construction.
+      `;
+
+      // Main legend text (below grid)
       if (state.viewMode === 'phenomenal') {
         legendText.innerHTML = `<p>This IS the agent's world. The agent first predicts (?) what gradients might mean, then confirms through interaction:</p>
         <p>Berries 🍓, Bushes 🌿, Grass 🌱, Trees 🌳, and Stones ⬤. Light areas show predictions; solid colors = confirmed objects.</p>
@@ -746,6 +850,7 @@
         behaviorPanel.style.display = 'none';
       }
     }
+
 
     // --- Controls ---
     let intervalId = null;
